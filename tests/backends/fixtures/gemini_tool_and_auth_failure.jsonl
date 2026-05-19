@@ -1,0 +1,2 @@
+{"type":"message","role":"assistant","content":"checking files","toolCalls":[{"name":"read_file","args":{"file_path":"pyproject.toml"},"status":"success"}]}
+Please set an Auth method in your settings.json

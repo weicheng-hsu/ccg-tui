@@ -1,0 +1,6 @@
+{"type":"init","session_id":"direct-tool-session"}
+{"type":"message","role":"user","content":"Inspect pyproject."}
+{"type":"tool_use","tool_name":"read_file","tool_id":"read_file_1777989906128_1","parameters":{"file_path":"pyproject.toml"}}
+{"type":"tool_result","tool_id":"read_file_1777989906128_1","status":"success","output":"[project]"}
+{"type":"message","role":"assistant","content":"checked"}
+{"type":"result","status":"success"}

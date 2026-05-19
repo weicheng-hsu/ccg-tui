@@ -1,0 +1,32 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+
+# Agents
+.hermes/
+
+# Private development notes
+.docs/
+
+# Environment and secrets
+.env
+.env.*
+
+# Common dependency/build outputs
+node_modules/
+dist/
+build/
+coverage/
+
+# Python
+.venv/
+__pycache__/
+
+# Local runtime state
+logs/
+tmp/
+runtime/

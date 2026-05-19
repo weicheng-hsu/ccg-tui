@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ccg-tui"
+version = "0.1.0"
+description = "Vendor-agnostic terminal UI for Codex, Claude Code, and Gemini CLI."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+keywords = ["terminal", "tui", "codex", "claude", "gemini", "developer-tools"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development",
+  "Topic :: Terminals",
+]
+dependencies = [
+  "prompt_toolkit>=3.0.51",
+]
+
+[project.scripts]
+ccg-tui = "ccg_tui.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/weicheng-hsu/ccg-integration/tree/main/ccg-tui"
+Repository = "https://github.com/weicheng-hsu/ccg-integration"
+Issues = "https://github.com/weicheng-hsu/ccg-integration/issues"
+Documentation = "https://github.com/weicheng-hsu/ccg-integration/tree/main/ccg-tui#readme"
+
+[dependency-groups]
+dev = [
+  "pexpect>=4.9.0",
+  "pyte>=0.8.2",
+  "pytest>=8.3.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+  "tui: fullscreen pseudo-terminal interaction tests",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ccg_tui"]
+
+[tool.uv]
+package = true

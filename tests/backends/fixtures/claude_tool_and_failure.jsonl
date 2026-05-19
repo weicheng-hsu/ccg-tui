@@ -1,0 +1,2 @@
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_fixture","name":"Read","input":{"file_path":"README.md"}}]}}
+{"type":"result","subtype":"error","is_error":true,"result":"permission denied by fixture"}

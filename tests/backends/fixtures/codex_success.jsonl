@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"019de88f-dc59-7ff1-a88c-46ba37c49aed"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"CCG_CODEX_SMOKE"}}
+{"type":"turn.completed","usage":{"input_tokens":14739,"cached_input_tokens":7552,"output_tokens":10,"reasoning_output_tokens":0}}

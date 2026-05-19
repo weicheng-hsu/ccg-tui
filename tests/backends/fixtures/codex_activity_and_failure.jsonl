@@ -1,0 +1,2 @@
+{"type":"item.started","item":{"type":"command_execution","command":"rg --files","arguments":{"cwd":"/tmp/project"}}}
+{"type":"turn.failed","message":"Codex turn failed for fixture"}
