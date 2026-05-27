@@ -16,6 +16,7 @@ from ccg_tui.app import (
     build_transcript_text,
     build_summary_backend,
     colorize_backend_label,
+    apply_model_selection,
     format_capability_registry,
     format_handoff_execution_confirmation,
     current_permission_label,
@@ -470,7 +471,11 @@ def test_prompt_toolkit_plain_enter_is_not_shift_enter():
     assert is_prompt_toolkit_shift_enter_event(event) is False
 
 
-def test_format_model_options_marks_current_model():
+def test_format_model_options_marks_current_model(monkeypatch):
+    monkeypatch.setenv(
+        "CCG_TUI_GEMINI_MODEL_OPTIONS",
+        json.dumps([{"value": "gemini-2.5-flash", "label": "Gemini 2.5 Flash"}]),
+    )
     controller = FakeController("gemini")
     controller.adapter.model = "gemini-2.5-flash"
 
@@ -482,7 +487,18 @@ def test_format_model_options_marks_current_model():
     assert "*" in text
 
 
-def test_format_model_options_lists_current_gemini_cli_visible_models():
+def test_format_model_options_lists_current_gemini_cli_visible_models(monkeypatch):
+    monkeypatch.setenv(
+        "CCG_TUI_GEMINI_MODEL_OPTIONS",
+        json.dumps(
+            [
+                {"value": "auto-gemini-3", "label": "Auto (Gemini 3)"},
+                {"value": "gemini-3-pro-preview", "label": "Gemini 3 Pro Preview"},
+                {"value": "gemini-3-flash-preview", "label": "Gemini 3 Flash Preview"},
+                {"value": "gemini-2.5-flash-lite", "label": "Gemini 2.5 Flash Lite"},
+            ]
+        ),
+    )
     text = format_model_options(FakeController("gemini"))
 
     assert "Auto (Gemini 3)" in text
@@ -534,14 +550,44 @@ def test_model_options_for_backend_reads_codex_models_cache(tmp_path, monkeypatc
     assert options[1].description == "Higher priority model."
 
 
+def test_model_options_for_backend_refreshes_codex_debug_catalog(monkeypatch):
+    payload = {
+        "models": [
+            {
+                "slug": "codex-dynamic-model",
+                "display_name": "Codex Dynamic",
+                "description": "Loaded from live catalog.",
+                "visibility": "list",
+                "priority": 1,
+            }
+        ]
+    }
+
+    monkeypatch.setattr("ccg_tui.app.shutil.which", lambda executable: "/usr/bin/codex")
+    monkeypatch.setattr(
+        "ccg_tui.app.subprocess.run",
+        lambda *_, **__: SimpleNamespace(returncode=0, stdout=json.dumps(payload)),
+    )
+
+    options = model_options_for_backend("codex", refresh=True)
+
+    assert [option.value for option in options] == [None, "codex-dynamic-model"]
+    assert options[1].label == "Codex Dynamic"
+
+
 def test_model_options_for_backend_uses_claude_aliases_and_custom_env(monkeypatch):
+    monkeypatch.setattr(
+        "ccg_tui.app._claude_model_values_from_binary",
+        lambda: ("sonnet", "opus", "haiku", "sonnet[1m]", "opus[1m]", "opusplan", "claude-sonnet-4-6"),
+    )
+    monkeypatch.setattr("ccg_tui.app._claude_model_values_from_config", lambda: ())
     monkeypatch.setenv("ANTHROPIC_CUSTOM_MODEL_OPTION", "custom-claude-model")
     monkeypatch.setenv("ANTHROPIC_CUSTOM_MODEL_OPTION_NAME", "Custom Claude")
     monkeypatch.setenv("ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION", "Org-specific Claude deployment.")
     monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL_NAME", "Team Sonnet")
     monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION", "Team Sonnet routing alias.")
 
-    options = model_options_for_backend("claude")
+    options = model_options_for_backend("claude", refresh=True)
 
     assert [option.value for option in options[:3]] == [None, "custom-claude-model", "sonnet"]
     assert options[1].label == "Custom Claude"
@@ -552,8 +598,107 @@ def test_model_options_for_backend_uses_claude_aliases_and_custom_env(monkeypatc
     assert all(option.value != "claude-sonnet-4-5-20250929" for option in options)
 
 
+def test_model_options_for_backend_uses_claude_dynamic_env_override(monkeypatch):
+    monkeypatch.setenv(
+        "CCG_TUI_CLAUDE_MODEL_OPTIONS",
+        json.dumps(
+            [
+                {
+                    "value": "claude-future-model",
+                    "label": "Claude Future",
+                    "description": "Loaded dynamically.",
+                }
+            ]
+        ),
+    )
+
+    options = model_options_for_backend("claude", refresh=True)
+
+    assert [option.value for option in options] == [None, "claude-future-model"]
+    assert options[1].label == "Claude Future"
+
+
+def test_model_options_for_backend_reads_gemini_cli_model_definitions(tmp_path, monkeypatch):
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    gemini_bin = bundle_dir / "gemini.js"
+    gemini_bin.write_text("")
+    (bundle_dir / "chunk.js").write_text(
+        """
+var DEFAULT_MODEL_CONFIGS = {
+  modelDefinitions: {
+    "gemini-future-pro": {
+      displayName: "Gemini Future Pro",
+      isVisible: true,
+      dialogDescription: "Loaded from installed Gemini CLI."
+    },
+    "gemini-hidden": {
+      isVisible: false
+    },
+    "auto-gemini-future": {
+      displayName: "Auto (Gemini Future)",
+      isVisible: true,
+      dialogDescription: "Dynamic auto router."
+    }
+  },
+  modelIdResolutions: {}
+}
+"""
+    )
+    monkeypatch.setattr("ccg_tui.app.shutil.which", lambda executable: str(gemini_bin))
+    monkeypatch.setattr("ccg_tui.app._gemini_model_options_from_settings", lambda: ())
+
+    options = model_options_for_backend("gemini", refresh=True)
+
+    assert [option.value for option in options] == [None, "auto-gemini-future", "gemini-future-pro"]
+    assert options[1].description == "Dynamic auto router."
+    assert all(option.value != "gemini-hidden" for option in options)
+
+
+def test_model_options_for_backend_refreshes_antigravity_provider(monkeypatch):
+    calls: list[bool] = []
+
+    def fake_antigravity_model_options(*, refresh=False):
+        calls.append(refresh)
+        return ("Dynamic Antigravity Model",)
+
+    monkeypatch.setattr("ccg_tui.app.antigravity_model_options", fake_antigravity_model_options)
+
+    options = model_options_for_backend("antigravity", refresh=True)
+
+    assert calls == [True]
+    assert [option.value for option in options] == ["Dynamic Antigravity Model"]
+
+
 def test_current_model_label_defaults_when_adapter_has_no_model():
     assert current_model_label(FakeController("codex")) == "default"
+
+
+def test_antigravity_model_selection_stays_in_ccg_and_writes_native_setting(tmp_path, monkeypatch):
+    monkeypatch.setattr("ccg_tui.backends.antigravity.Path.home", lambda: tmp_path)
+    monkeypatch.setattr(
+        "ccg_tui.app.antigravity_model_options",
+        lambda **_: (
+            "Gemini 3.1 Pro (High)",
+            "Claude Sonnet 4.6 (Thinking)",
+            "Claude Opus 4.6 (Thinking)",
+        ),
+    )
+    settings_path = tmp_path / ".gemini" / "antigravity-cli" / "settings.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text('{"model":"Gemini 3.5 Flash (Medium)"}')
+    controller = FakeController("antigravity")
+
+    text = format_model_options(controller)
+    message = apply_model_selection(controller, "Gemini 3.1 Pro (High)")
+
+    assert "Model Picker (antigravity)" in text
+    assert "Gemini 3.1 Pro (High)" in text
+    assert "Claude Sonnet 4.6 (Thinking)" in text
+    assert "Claude Opus 4.6 (Thinking)" in text
+    assert message == "Model set to Gemini 3.1 Pro (High) for antigravity."
+    assert current_model_label(controller) == "Gemini 3.1 Pro (High)"
+    assert "Gemini 3.1 Pro (High)" in settings_path.read_text()
 
 
 def test_format_permission_options_marks_current_permissions():
@@ -1205,6 +1350,7 @@ def test_run_interface_model_command_lists_options_when_no_argument(tmp_path, mo
         )
     )
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setattr("ccg_tui.app._codex_model_options_from_debug", lambda: ())
 
     code = run_interface(
         controller_factory=lambda backend: FakeController(backend),

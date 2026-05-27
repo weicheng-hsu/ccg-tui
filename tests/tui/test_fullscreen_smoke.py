@@ -376,6 +376,25 @@ def test_fullscreen_model_command_without_args_opens_picker(tui_app) -> None:
     app.expect_exit(0)
 
 
+def test_fullscreen_antigravity_model_command_stays_in_ccg_picker(tui_app) -> None:
+    app = tui_app("--backend", "antigravity", cols=160)
+
+    app.expect_text("Ready")
+    app.type("/model")
+    app.enter()
+    app.expect_text("Model Picker")
+    app.expect_text("antigravity")
+    app.expect_text("Gemini 3.5 Flash")
+    app.expect_text("Claude Sonnet 4.6")
+    app.expect_no_text("Handing terminal to backend")
+
+    app.press("escape")
+    app.expect_text("Model selection cancelled.")
+    app.type("/quit")
+    app.enter()
+    app.expect_exit(0)
+
+
 @pytest.mark.parametrize(
     ("backend", "preset", "expected_text"),
     [

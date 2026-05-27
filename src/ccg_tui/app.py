@@ -3,13 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -99,34 +100,16 @@ class PermissionOption:
 FALLBACK_MODEL_OPTIONS: dict[str, tuple[ModelOption, ...]] = {
     "codex": (
         ModelOption("Default", None, "Use the Codex CLI default model."),
-        ModelOption("GPT-5.5", "gpt-5.5", "Frontier model for complex coding, research, and real-world work."),
-        ModelOption("gpt-5.4", "gpt-5.4", "Strong model for everyday coding."),
-        ModelOption("GPT-5.4-Mini", "gpt-5.4-mini", "Small, fast, and cost-efficient model for simpler coding tasks."),
-        ModelOption("gpt-5.3-codex", "gpt-5.3-codex", "Coding-optimized model."),
-        ModelOption("gpt-5.2", "gpt-5.2", "Optimized for professional work and long-running agents."),
     ),
     "claude": (
         ModelOption("Default", None, "Use the Claude Code default model."),
-        ModelOption("Sonnet", "sonnet", "Latest Claude Sonnet alias selected by Claude Code."),
-        ModelOption("Opus", "opus", "Latest Claude Opus alias selected by Claude Code."),
-        ModelOption("Haiku", "haiku", "Latest Claude Haiku alias selected by Claude Code."),
-        ModelOption("Sonnet (1M context)", "sonnet[1m]", "Claude Sonnet with extended context when available."),
-        ModelOption("Opus (1M context)", "opus[1m]", "Claude Opus with extended context when available."),
-        ModelOption("Opus Plan Mode", "opusplan", "Use Opus in plan mode and Sonnet otherwise."),
     ),
     "gemini": (
         ModelOption("Default", None, "Use the Gemini CLI default model."),
-        ModelOption("Auto (Gemini 3)", "auto-gemini-3", "Let Gemini CLI route between Gemini 3 Pro and Flash."),
-        ModelOption("Auto (Gemini 2.5)", "auto-gemini-2.5", "Let Gemini CLI route between Gemini 2.5 Pro and Flash."),
-        ModelOption("Gemini 3.1 Pro Preview", "gemini-3.1-pro-preview", "Preview Gemini 3.1 Pro model when available."),
-        ModelOption("Gemini 3 Pro Preview", "gemini-3-pro-preview", "Preview Gemini 3 Pro model."),
-        ModelOption("Gemini 3 Flash Preview", "gemini-3-flash-preview", "Preview Gemini 3 Flash model."),
-        ModelOption("Gemini 3.1 Flash Lite Preview", "gemini-3.1-flash-lite-preview", "Preview Gemini 3.1 Flash Lite model when available."),
-        ModelOption("Gemini 2.5 Pro", "gemini-2.5-pro", "Stable Gemini 2.5 Pro model."),
-        ModelOption("Gemini 2.5 Flash", "gemini-2.5-flash", "Stable Gemini 2.5 Flash model."),
-        ModelOption("Gemini 2.5 Flash Lite", "gemini-2.5-flash-lite", "Stable Gemini 2.5 Flash Lite model."),
     ),
 }
+_MODEL_OPTIONS_CACHE: dict[str, tuple[ModelOption, ...]] = {}
+_CLAUDE_MODEL_ID_RE = re.compile(r"claude-(sonnet|opus|haiku)-(\d{1,2})-(\d{1,2})(?:-\d{8})?(?!\d)")
 
 PERMISSION_OPTIONS: tuple[PermissionOption, ...] = tuple(
     PermissionOption(
@@ -1120,6 +1103,70 @@ def _with_default_model_option(backend: str, options: list[ModelOption]) -> tupl
     return _dedupe_model_options([_default_model_option(backend), *options])
 
 
+def _model_options_env_name(backend: str) -> str:
+    return f"CCG_TUI_{backend.upper()}_MODEL_OPTIONS"
+
+
+def _model_id_label(value: str) -> str:
+    if value.startswith("auto-gemini-"):
+        suffix = value.removeprefix("auto-gemini-")
+        return f"Auto (Gemini {suffix})"
+    if value.startswith("claude-"):
+        parts = value.split("-")
+        if len(parts) >= 4:
+            family = parts[1].title()
+            version = ".".join(parts[2:4])
+            return f"Claude {family} {version}"
+    if value.startswith("gemini-") or value.startswith("gemma-"):
+        words = value.replace("-", " ").split()
+        return " ".join(word.upper() if word in {"it", "a4b"} else word.title() for word in words)
+    if value.startswith("gpt-"):
+        return value.upper()
+    return value
+
+
+def _env_model_option(item, default_description: str) -> ModelOption | None:
+    if isinstance(item, dict):
+        value = (
+            _string_value(item.get("value"))
+            or _string_value(item.get("model"))
+            or _string_value(item.get("slug"))
+            or _string_value(item.get("id"))
+        )
+        if value is None:
+            return None
+        label = _string_value(item.get("label")) or _string_value(item.get("name")) or _string_value(item.get("display_name")) or value
+        description = _string_value(item.get("description")) or default_description
+        return ModelOption(label, value, description)
+    if isinstance(item, str):
+        text = item.strip()
+        if not text:
+            return None
+        if "=" in text:
+            label, value = [part.strip() for part in text.split("=", 1)]
+            if value:
+                return ModelOption(label or value, value, default_description)
+        return ModelOption(_model_id_label(text), text, default_description)
+    return None
+
+
+def _model_options_from_env(backend: str, default_description: str) -> tuple[ModelOption, ...] | None:
+    raw = os.environ.get(_model_options_env_name(backend))
+    if raw is None:
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        payload = None
+    items = payload if isinstance(payload, list) else raw.replace(",", "\n").splitlines()
+    options = [
+        option
+        for option in (_env_model_option(item, default_description) for item in items)
+        if option is not None
+    ]
+    return tuple(options)
+
+
 def _codex_home() -> Path:
     configured = os.environ.get("CODEX_HOME", "").strip()
     return Path(configured).expanduser() if configured else Path.home() / ".codex"
@@ -1137,8 +1184,7 @@ def _string_value(value) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
-def _codex_model_options_from_cache(cache_path: Path) -> tuple[ModelOption, ...]:
-    payload = _read_json_object(cache_path)
+def _codex_model_options_from_catalog(payload: dict | None) -> tuple[ModelOption, ...]:
     if payload is None:
         return ()
     raw_models = payload.get("models")
@@ -1183,13 +1229,96 @@ def _codex_model_options_from_cache(cache_path: Path) -> tuple[ModelOption, ...]
     return tuple(options)
 
 
-def _codex_model_options() -> tuple[ModelOption, ...]:
-    options = list(_codex_model_options_from_cache(_codex_home() / "models_cache.json"))
-    return _with_default_model_option("codex", options) if options else _fallback_model_options("codex")
+def _codex_model_options_from_cache(cache_path: Path) -> tuple[ModelOption, ...]:
+    return _codex_model_options_from_catalog(_read_json_object(cache_path))
+
+
+def _codex_model_options_from_debug() -> tuple[ModelOption, ...]:
+    if shutil.which("codex") is None:
+        return ()
+    try:
+        completed = subprocess.run(
+            ["codex", "debug", "models"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ()
+    if completed.returncode != 0:
+        return ()
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return ()
+    return _codex_model_options_from_catalog(payload if isinstance(payload, dict) else None)
+
+
+def _codex_model_options(*, refresh: bool = False) -> tuple[ModelOption, ...]:
+    env_options = _model_options_from_env("codex", "Codex model.")
+    if env_options is not None:
+        return _with_default_model_option("codex", list(env_options))
+    options = list(_codex_model_options_from_debug()) if refresh else []
+    if not options:
+        options = list(_codex_model_options_from_cache(_codex_home() / "models_cache.json"))
+    result = _with_default_model_option("codex", options) if options else _fallback_model_options("codex")
+    _MODEL_OPTIONS_CACHE["codex"] = result
+    return result
 
 
 def _env_text(name: str) -> str | None:
     return _string_value(os.environ.get(name))
+
+
+def _latest_claude_model_options(values: Iterable[str]) -> list[ModelOption]:
+    latest: dict[str, tuple[tuple[int, int], str]] = {}
+    for value in values:
+        match = _CLAUDE_MODEL_ID_RE.fullmatch(value)
+        if match is None:
+            continue
+        family = match.group(1)
+        version = (int(match.group(2)), int(match.group(3)))
+        current = latest.get(family)
+        if current is None or version > current[0] or (version == current[0] and len(value) < len(current[1])):
+            latest[family] = (version, value)
+    family_order = {"sonnet": 0, "opus": 1, "haiku": 2}
+    return [
+        ModelOption(_model_id_label(value), value, "Claude Code model discovered from the installed CLI.")
+        for family, (_, value) in sorted(latest.items(), key=lambda item: family_order.get(item[0], 99))
+    ]
+
+
+def _claude_model_values_from_binary() -> tuple[str, ...]:
+    executable = shutil.which("claude")
+    if executable is None:
+        return ()
+    try:
+        data = Path(executable).resolve().read_bytes()
+    except OSError:
+        return ()
+    pattern = rb"claude-(?:sonnet|opus|haiku)-\d{1,2}-\d{1,2}(?:-\d{8})?(?!\d)|sonnet\[1m\]|opus\[1m\]|opusplan|sonnet|opus|haiku"
+    return tuple(match.decode("utf-8", errors="ignore") for match in re.findall(pattern, data))
+
+
+def _claude_model_values_from_config(path: Path | None = None) -> tuple[str, ...]:
+    payload = _read_json_object(path or Path.home() / ".claude.json")
+    if payload is None:
+        return ()
+    values: list[str] = []
+
+    def visit(value) -> None:
+        if isinstance(value, dict):
+            for item in value.values():
+                visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+        elif isinstance(value, str) and _CLAUDE_MODEL_ID_RE.fullmatch(value):
+            values.append(value)
+
+    visit(payload)
+    return tuple(values)
 
 
 def _claude_alias_option(
@@ -1205,33 +1334,54 @@ def _claude_alias_option(
     return ModelOption(label or default_label, value, description or default_description)
 
 
-def _claude_model_options() -> tuple[ModelOption, ...]:
+def _claude_model_options(*, refresh: bool = False) -> tuple[ModelOption, ...]:
+    env_options = _model_options_from_env("claude", "Claude Code model.")
+    if env_options is not None:
+        return _with_default_model_option("claude", list(env_options))
+    if not refresh and "claude" in _MODEL_OPTIONS_CACHE:
+        return _MODEL_OPTIONS_CACHE["claude"]
+    discovered_values = set(_claude_model_values_from_binary()) | set(_claude_model_values_from_config())
+    alias_specs = [
+        (
+            "sonnet",
+            "Sonnet",
+            "Claude Sonnet alias resolved by Claude Code.",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION",
+        ),
+        (
+            "opus",
+            "Opus",
+            "Claude Opus alias resolved by Claude Code.",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION",
+        ),
+        (
+            "haiku",
+            "Haiku",
+            "Claude Haiku alias resolved by Claude Code.",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION",
+        ),
+    ]
     options = [
         _claude_alias_option(
-            value="sonnet",
-            default_label="Sonnet",
-            default_description="Claude Sonnet alias resolved by Claude Code.",
-            label_env="ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
-            description_env="ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION",
-        ),
-        _claude_alias_option(
-            value="opus",
-            default_label="Opus",
-            default_description="Claude Opus alias resolved by Claude Code.",
-            label_env="ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
-            description_env="ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION",
-        ),
-        _claude_alias_option(
-            value="haiku",
-            default_label="Haiku",
-            default_description="Claude Haiku alias resolved by Claude Code.",
-            label_env="ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
-            description_env="ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION",
-        ),
-        ModelOption("Sonnet (1M context)", "sonnet[1m]", "Claude Sonnet with extended context when available."),
-        ModelOption("Opus (1M context)", "opus[1m]", "Claude Opus with extended context when available."),
-        ModelOption("Opus Plan Mode", "opusplan", "Use Opus in plan mode and Sonnet otherwise."),
+            value=value,
+            default_label=label,
+            default_description=description,
+            label_env=label_env,
+            description_env=description_env,
+        )
+        for value, label, description, label_env, description_env in alias_specs
+        if value in discovered_values
     ]
+    if "sonnet[1m]" in discovered_values:
+        options.append(ModelOption("Sonnet (1M context)", "sonnet[1m]", "Claude Sonnet with extended context when available."))
+    if "opus[1m]" in discovered_values:
+        options.append(ModelOption("Opus (1M context)", "opus[1m]", "Claude Opus with extended context when available."))
+    if "opusplan" in discovered_values:
+        options.append(ModelOption("Opus Plan Mode", "opusplan", "Use Opus in plan mode and Sonnet otherwise."))
+    options.extend(_latest_claude_model_options(discovered_values))
     custom_model = _env_text("ANTHROPIC_CUSTOM_MODEL_OPTION")
     if custom_model:
         options.insert(
@@ -1242,22 +1392,134 @@ def _claude_model_options() -> tuple[ModelOption, ...]:
                 _env_text("ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION") or "Custom Claude model option.",
             ),
         )
-    return _with_default_model_option("claude", options)
+    result = _with_default_model_option("claude", options) if options else _fallback_model_options("claude")
+    _MODEL_OPTIONS_CACHE["claude"] = result
+    return result
 
 
-def model_options_for_backend(backend: str) -> tuple[ModelOption, ...]:
+def _gemini_bundle_dir() -> Path | None:
+    executable = shutil.which("gemini")
+    if executable is None:
+        return None
+    resolved = Path(executable).resolve()
+    if resolved.parent.name == "bundle":
+        return resolved.parent
+    package_bundle = resolved.parent / "lib" / "node_modules" / "@google" / "gemini-cli" / "bundle"
+    return package_bundle if package_bundle.exists() else None
+
+
+def _gemini_model_options_from_settings(path: Path | None = None) -> tuple[ModelOption, ...]:
+    payload = _read_json_object(path or Path.home() / ".gemini" / "settings.json")
+    if payload is None:
+        return ()
+    model_configs = payload.get("modelConfigs")
+    if not isinstance(model_configs, dict):
+        return ()
+    options: list[ModelOption] = []
+    definitions = model_configs.get("modelDefinitions")
+    if isinstance(definitions, dict):
+        for value, definition in definitions.items():
+            if not isinstance(value, str) or not isinstance(definition, dict):
+                continue
+            if definition.get("isVisible") is False:
+                continue
+            if not value.startswith(("auto-gemini-", "gemini-", "gemma-")):
+                continue
+            label = _string_value(definition.get("displayName")) or _model_id_label(value)
+            description = _string_value(definition.get("dialogDescription")) or "Gemini CLI model."
+            options.append(ModelOption(label, value, description))
+    aliases = model_configs.get("aliases")
+    if isinstance(aliases, dict):
+        for value, definition in aliases.items():
+            if not isinstance(value, str) or not isinstance(definition, dict):
+                continue
+            if not value.startswith(("auto-gemini-", "gemini-", "gemma-")):
+                continue
+            label = _model_id_label(value)
+            options.append(ModelOption(label, value, "Gemini CLI model alias from settings."))
+    return _dedupe_model_options(options)
+
+
+def _gemini_model_options_from_bundle(bundle_dir: Path | None = None) -> tuple[ModelOption, ...]:
+    root = bundle_dir or _gemini_bundle_dir()
+    if root is None:
+        return ()
+    options: list[ModelOption] = []
+    for path in sorted(root.glob("*.js")):
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if "modelDefinitions" not in text or "isVisible: true" not in text:
+            continue
+        for match in re.finditer(r'^\s{4}"?([A-Za-z0-9_.-]+)"?:\s*\{(?P<body>.*?)^\s{4}\},?', text, flags=re.MULTILINE | re.DOTALL):
+            value = match.group(1)
+            body = match.group("body")
+            if not value.startswith(("auto-gemini-", "gemini-", "gemma-")):
+                continue
+            if "isVisible: true" not in body:
+                continue
+            label_match = re.search(r'displayName:\s*"([^"]+)"', body)
+            description_match = re.search(r'dialogDescription:\s*"([^"]+)"', body)
+            label = label_match.group(1) if label_match else _model_id_label(value)
+            description = description_match.group(1) if description_match else "Gemini CLI model discovered from the installed CLI."
+            options.append(ModelOption(label, value, description))
+        if options:
+            return _dedupe_model_options(options)
+    return ()
+
+
+def _gemini_model_sort_key(option: ModelOption) -> tuple[int, str]:
+    value = option.value or ""
+    if value == "auto-gemini-3":
+        return (0, "0")
+    if value == "auto-gemini-2.5":
+        return (0, "1")
+    if value.startswith("auto-gemini-"):
+        return (0, value)
+    if value.startswith("gemini-"):
+        return (1, value)
+    if value.startswith("gemma-"):
+        return (2, value)
+    return (3, value)
+
+
+def _gemini_model_options(*, refresh: bool = False) -> tuple[ModelOption, ...]:
+    env_options = _model_options_from_env("gemini", "Gemini CLI model.")
+    if env_options is not None:
+        return _with_default_model_option("gemini", list(env_options))
+    if not refresh and "gemini" in _MODEL_OPTIONS_CACHE:
+        return _MODEL_OPTIONS_CACHE["gemini"]
+    options = list(_gemini_model_options_from_settings())
+    options.extend(_gemini_model_options_from_bundle())
+    options = sorted(_dedupe_model_options(options), key=_gemini_model_sort_key)
+    result = _with_default_model_option("gemini", options) if options else _fallback_model_options("gemini")
+    _MODEL_OPTIONS_CACHE["gemini"] = result
+    return result
+
+
+def _antigravity_model_options(*, refresh: bool = False) -> tuple[ModelOption, ...]:
+    return tuple(
+        ModelOption(label, label, "Antigravity native model setting.")
+        for label in antigravity_model_options(refresh=refresh)
+    )
+
+
+def model_options_for_backend(backend: str, *, refresh: bool = False) -> tuple[ModelOption, ...]:
     if backend == "codex":
-        return _codex_model_options()
+        return _codex_model_options(refresh=refresh)
     if backend == "claude":
-        return _claude_model_options()
+        return _claude_model_options(refresh=refresh)
     if backend == "gemini":
-        return _fallback_model_options("gemini")
+        return _gemini_model_options(refresh=refresh)
+    if backend == "antigravity":
+        return _antigravity_model_options(refresh=refresh)
     return _fallback_model_options(backend)
 
 
-def find_model_option(backend: str, value: str | None) -> ModelOption | None:
+def find_model_option(backend: str, value: str | None, *, refresh: bool = False) -> ModelOption | None:
     normalized = (value or "").strip()
-    for option in model_options_for_backend(backend):
+    for option in model_options_for_backend(backend, refresh=refresh):
         if option.value == value:
             return option
         if normalized and normalized.lower() in {option.label.lower(), (option.value or "").lower()}:
@@ -1273,27 +1535,26 @@ def find_permission_option(value: str) -> PermissionOption | None:
     return None
 
 
-def format_model_options(controller: SessionController, selected_index: int = 0) -> str:
+def format_model_options(controller: SessionController, selected_index: int = 0, *, refresh: bool = False) -> str:
     backend = controller.session.backend.value
     active_model = current_model(controller)
+    options = model_options_for_backend(backend, refresh=refresh)
     lines = [
         f"Model Picker ({backend})",
         f"Current: {current_model_label(controller)}",
         "",
     ]
-    for index, option in enumerate(model_options_for_backend(backend)):
+    if not options:
+        lines.append("No model options are available from this backend right now.")
+    for index, option in enumerate(options):
         marker = ">" if index == selected_index else " "
         active = " *" if option.value == active_model else ""
         value = option.value or "default"
         lines.append(f"{marker} {option.label:<20} {value:<32} {option.description}{active}")
-    lines.extend(
-        [
-            "",
-            "Enter apply",
-            "Up/Down move",
-            "Esc cancel",
-        ]
-    )
+    if options:
+        lines.extend(["", "Enter apply", "Up/Down move", "Esc cancel"])
+    else:
+        lines.extend(["", "Esc cancel"])
     return "\n".join(lines)
 
 
@@ -2160,11 +2421,11 @@ def run_simple_interface(
                     composer_text = f"Started fresh {current_backend} session."
                 elif parsed.canonical == "/model":
                     if parsed.args:
-                        option = find_model_option(controller.session.backend.value, parsed.args)
+                        option = find_model_option(controller.session.backend.value, parsed.args, refresh=True)
                         model = option.value if option is not None else parsed.args
                         composer_text = apply_model_selection(controller, model)
                     else:
-                        composer_text = format_model_options(controller)
+                        composer_text = format_model_options(controller, refresh=True)
                 elif parsed.canonical == "/permissions":
                     if parsed.args:
                         option = find_permission_option(parsed.args)
@@ -2757,6 +3018,11 @@ def run_prompt_toolkit_interface(
                 ("class:role.meta", " · /model <value> applies without opening this picker\n\n"),
             ]
         )
+        if not options:
+            fragments.append(("class:role.meta", "No model options are available from this backend right now.\n"))
+            fragments.append(("", "\n"))
+            fragments.append(("class:role.meta", "esc cancel\n"))
+            return fragments
         for index, option in enumerate(options):
             selected = index == state["model_index"]
             current = option.value == active_model
@@ -3488,7 +3754,10 @@ def run_prompt_toolkit_interface(
     def open_model_picker() -> None:
         backend = current_controller().session.backend.value
         active_model = current_model(current_controller())
-        options = model_options_for_backend(backend)
+        options = model_options_for_backend(backend, refresh=True)
+        if not options:
+            refresh(message=f"No model options available for {backend}.", busy=False)
+            return
         state["model_index"] = next(
             (index for index, option in enumerate(options) if option.value == active_model),
             0,
@@ -3507,11 +3776,18 @@ def run_prompt_toolkit_interface(
 
     def move_model_picker(offset: int) -> None:
         options = model_options_for_backend(current_controller().session.backend.value)
+        if not options:
+            refresh(message="No model options available.", busy=False)
+            return
         state["model_index"] = (state["model_index"] + offset) % len(options)
         refresh()
 
     def apply_selected_model() -> None:
-        option = model_options_for_backend(current_controller().session.backend.value)[state["model_index"]]
+        options = model_options_for_backend(current_controller().session.backend.value)
+        if not options:
+            close_model_picker("No model options available.")
+            return
+        option = options[state["model_index"] % len(options)]
         message = apply_model_selection(current_controller(), option.value)
         close_model_picker(message)
 
@@ -3693,7 +3969,7 @@ def run_prompt_toolkit_interface(
                     refresh(message="Wait for the current turn to finish", busy=True)
                     return
                 if parsed.args:
-                    option = find_model_option(current_controller().session.backend.value, parsed.args)
+                    option = find_model_option(current_controller().session.backend.value, parsed.args, refresh=True)
                     model = option.value if option is not None else parsed.args
                     refresh(message=apply_model_selection(current_controller(), model), busy=False)
                 else:

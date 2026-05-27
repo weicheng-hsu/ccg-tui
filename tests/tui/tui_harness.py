@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import time
@@ -81,7 +82,24 @@ class TuiProcess:
             artifact_dir=artifact_dir,
             cols=cols,
             rows=rows,
-            env={"CCG_TUI_FAKE_BACKEND": "1"},
+            env={
+                "CCG_TUI_FAKE_BACKEND": "1",
+                "CCG_TUI_CODEX_MODEL_OPTIONS": json.dumps(
+                    [{"value": "gpt-5.5", "label": "GPT-5.5", "description": "Test Codex model."}]
+                ),
+                "CCG_TUI_CLAUDE_MODEL_OPTIONS": json.dumps(
+                    [{"value": "sonnet", "label": "Sonnet", "description": "Test Claude model."}]
+                ),
+                "CCG_TUI_GEMINI_MODEL_OPTIONS": json.dumps(
+                    [{"value": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "description": "Test Gemini model."}]
+                ),
+                "CCG_TUI_ANTIGRAVITY_MODEL_OPTIONS": "\n".join(
+                    [
+                        "Gemini 3.5 Flash (Medium)",
+                        "Claude Sonnet 4.6 (Thinking)",
+                    ]
+                ),
+            },
         )
         process.transcript_dir = Path(transcript_dir)
         return process
