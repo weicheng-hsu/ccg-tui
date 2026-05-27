@@ -8,6 +8,7 @@ Thumbs.db
 
 # Agents
 .hermes/
+.antigravitycli/
 
 # Private development notes
 .docs/

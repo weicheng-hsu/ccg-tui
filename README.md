@@ -170,6 +170,7 @@ Or set values directly:
 /model gpt-5.5
 /model sonnet
 /model gemini-2.5-flash
+/model Claude Sonnet 4.6 (Thinking)
 /permissions ask
 /permissions plan
 /permissions auto-edit
@@ -182,6 +183,13 @@ CCG refreshes model choices from the active backend when `/model` opens: Codex
 uses `codex debug models`, Claude reads the installed Claude Code model aliases
 and local config, Gemini reads the installed Gemini CLI model definitions, and
 Antigravity reads the native picker in the background.
+
+For deterministic environments, override the dynamic list with
+`CCG_TUI_CODEX_MODEL_OPTIONS`, `CCG_TUI_CLAUDE_MODEL_OPTIONS`,
+`CCG_TUI_GEMINI_MODEL_OPTIONS`, or `CCG_TUI_ANTIGRAVITY_MODEL_OPTIONS`.
+Use newline- or comma-separated model values; Codex, Claude, and Gemini also
+accept a JSON list of `{ "label": "...", "value": "...", "description": "..." }`
+objects.
 
 The default permission preset is `ask`.
 
