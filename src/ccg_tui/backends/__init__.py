@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ccg_tui.models import BackendEvent, BackendName, EventType
 
+from .antigravity import AntigravityAdapter
 from .base import BackendAdapter
 from .claude import ClaudeAdapter
 from .codex import CodexAdapter
@@ -103,7 +104,22 @@ def build_backend(
         if approval_mode is not _UNSET:
             kwargs["approval_mode"] = approval_mode
         return GeminiAdapter(**kwargs)
+    if normalized == "antigravity":
+        kwargs = {}
+        if model is not _UNSET:
+            kwargs["model"] = model
+        if permission_mode is not _UNSET:
+            kwargs["permission_mode"] = permission_mode
+        return AntigravityAdapter(**kwargs)
     raise ValueError(f"Unsupported backend: {name}")
 
 
-__all__ = ["BackendAdapter", "CodexAdapter", "ClaudeAdapter", "GeminiAdapter", "FakeBackendAdapter", "build_backend"]
+__all__ = [
+    "AntigravityAdapter",
+    "BackendAdapter",
+    "CodexAdapter",
+    "ClaudeAdapter",
+    "GeminiAdapter",
+    "FakeBackendAdapter",
+    "build_backend",
+]

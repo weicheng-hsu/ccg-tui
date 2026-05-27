@@ -5,9 +5,9 @@
 # CCG TUI
 
 CCG TUI is a vendor-agnostic terminal workspace for developers who use multiple
-coding agent CLIs. It lets you run Codex, Claude Code, and Gemini CLI from one
-consistent interface while CCG owns the transcript, local workflow commands,
-resume context, and cross-backend handoff packets.
+coding agent CLIs. It lets you run Codex, Claude Code, Gemini CLI, and
+Antigravity CLI from one consistent interface while CCG owns the transcript,
+local workflow commands, resume context, and cross-backend handoff packets.
 
 The project is useful today as a local operator console, with deliberately
 conservative boundaries around automation: CCG can advise on backend fit and
@@ -39,8 +39,10 @@ and hand off bounded working context when another backend should continue.
 
 - Fullscreen `prompt_toolkit` TUI with backend, model, and permissions pickers.
 - One-shot prompt mode and a line-by-line fallback UI.
-- Backend adapters for `codex`, `claude`, and `gemini`.
-- Persistent terminal-backed backend sessions during interactive use.
+- Backend adapters for `codex`, `claude`, `gemini`, and `antigravity`.
+- Persistent terminal-backed backend sessions where vendor CLIs expose usable
+  transcript contracts; Antigravity uses verified `agy --print` mode for CCG
+  turns and native terminal handoff for backend-interactive commands.
 - Normalized output, activity, failures, vendor session ids, and transcript
   events across supported backends.
 - CCG-owned slash commands for status, local history, resume context,
@@ -48,7 +50,8 @@ and hand off bounded working context when another backend should continue.
 - Backend-native slash-command passthrough with selected compatibility
   translations.
 - JSON transcripts under `runtime/transcripts/`.
-- Gemini-backed summary checkpoints.
+- Gemini-backed summary checkpoints, with optional Antigravity summary backend
+  support when local `agy --print` output is verified.
 - First-turn local resume context injection.
 - Manual cross-backend handoff packet preview/export and explicit
   target-session execution with lineage metadata.
@@ -72,8 +75,16 @@ Prerequisites:
 
 - Python 3.12+
 - `uv`
-- one or more supported vendor CLIs on `PATH`: `codex`, `claude`, `gemini`
+- one or more supported vendor CLIs on `PATH`: `codex`, `claude`, `gemini`,
+  `agy`
 - vendor-native authentication completed in whichever CLIs you plan to use
+
+Antigravity uses the official `agy` launcher. Install it with Google's
+installer when it is not already on `PATH`:
+
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+```
 
 Install dependencies:
 
@@ -93,12 +104,14 @@ Start directly with a backend:
 uv run ccg-tui --backend codex
 uv run ccg-tui --backend claude
 uv run ccg-tui --backend gemini
+uv run ccg-tui --backend antigravity
 ```
 
 Run a single prompt:
 
 ```bash
 uv run ccg-tui --backend codex --prompt "Summarize this repository"
+uv run ccg-tui --backend antigravity --prompt "Summarize this repository"
 ```
 
 Use the simple fallback UI:
@@ -165,15 +178,29 @@ Or set values directly:
 
 Model names are examples. Actual availability is controlled by the installed
 vendor CLI and the account or project it is authenticated against.
+CCG refreshes model choices from the active backend when `/model` opens: Codex
+uses `codex debug models`, Claude reads the installed Claude Code model aliases
+and local config, Gemini reads the installed Gemini CLI model definitions, and
+Antigravity reads the native picker in the background.
 
 The default permission preset is `ask`.
 
-| Preset | Codex | Claude | Gemini |
-| --- | --- | --- | --- |
-| `plan` | `approval_policy=on-request`, `sandbox_mode=read-only` | `permission_mode=plan` | `approval_mode=plan` |
-| `ask` | `approval_policy=on-request`, `sandbox_mode=workspace-write` | `permission_mode=default` | `approval_mode=default` |
-| `auto-edit` | `approval_policy=never`, `sandbox_mode=workspace-write` | `permission_mode=acceptEdits` | `approval_mode=auto_edit` |
-| `full-access` | `approval_policy=never`, `sandbox_mode=danger-full-access` | `permission_mode=bypassPermissions` | `approval_mode=yolo` |
+| Preset | Codex | Claude | Gemini | Antigravity |
+| --- | --- | --- | --- | --- |
+| `plan` | `approval_policy=on-request`, `sandbox_mode=read-only` | `permission_mode=plan` | `approval_mode=plan` | `permission_mode=sandbox` |
+| `ask` | `approval_policy=on-request`, `sandbox_mode=workspace-write` | `permission_mode=default` | `approval_mode=default` | `permission_mode=default` |
+| `auto-edit` | `approval_policy=never`, `sandbox_mode=workspace-write` | `permission_mode=acceptEdits` | `approval_mode=auto_edit` | `permission_mode=proceed-in-sandbox` |
+| `full-access` | `approval_policy=never`, `sandbox_mode=danger-full-access` | `permission_mode=bypassPermissions` | `approval_mode=yolo` | `permission_mode=dangerously-skip-permissions` |
+
+For Antigravity, CCG maps these presets onto the verified `agy` CLI flags:
+`sandbox` and `proceed-in-sandbox` launch with `--sandbox`,
+`dangerously-skip-permissions` launches with
+`--dangerously-skip-permissions`, and `default` uses the native CLI default.
+Model selection is currently backed by Antigravity's native settings because
+`agy` 1.0.2 does not expose a verified model flag. In fullscreen CCG, `/model`
+on the `antigravity` backend stays inside CCG's picker, dynamically reads
+Antigravity's native model picker in the background, and writes the selected
+Antigravity `model` setting; it does not hand control to the native `agy` TUI.
 
 Permission presets are explicit. CCG never widens access automatically while
 preparing routing advice, resume context, or handoff packets.
@@ -190,6 +217,12 @@ Create a Gemini-backed summary checkpoint:
 
 ```bash
 uv run ccg-tui --summarize-session <session-id>
+```
+
+Use Antigravity for summary generation only after local print mode is working:
+
+```bash
+uv run ccg-tui --summarize-session <session-id> --summary-backend antigravity
 ```
 
 Resume a local CCG transcript:
@@ -211,6 +244,7 @@ Preview or export a handoff packet:
 ```bash
 uv run ccg-tui --handoff-session <session-id> --target-backend claude --target-model sonnet --handoff-goal "Continue the implementation"
 uv run ccg-tui --handoff-session <session-id> --target-backend gemini --handoff-output runtime/handoffs/packet.txt
+uv run ccg-tui --handoff-session <session-id> --target-backend antigravity --handoff-goal "Continue in Antigravity"
 ```
 
 Start a new target-backend session from that packet:
@@ -239,6 +273,14 @@ If a backend process stops without a terminal success or failure event, CCG
 persists the latest turn as `failed` with `error.kind=interrupted` and
 `metadata.recovery.state=interrupted`. Resume and handoff treat partial output
 as inspectable but non-authoritative.
+
+## Antigravity And Gemini
+
+`gemini` and `antigravity` are separate backends. CCG does not rename Gemini
+sessions, reuse Gemini transcript paths for Antigravity, or automatically move
+Google-backed work between the two. Use `antigravity` explicitly when you want
+the `agy` CLI, and keep `gemini` for existing Gemini CLI workflows or
+enterprise environments that still require it.
 
 ## 📄 License
 

@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "ccg-tui"
 version = "0.1.0"
-description = "Vendor-agnostic terminal UI for Codex, Claude Code, and Gemini CLI."
+description = "Vendor-agnostic terminal UI for Codex, Claude Code, Gemini CLI, and Antigravity CLI."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.12"
-keywords = ["terminal", "tui", "codex", "claude", "gemini", "developer-tools"]
+keywords = ["terminal", "tui", "codex", "claude", "gemini", "antigravity", "developer-tools"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",

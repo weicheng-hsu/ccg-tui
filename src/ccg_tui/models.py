@@ -9,6 +9,7 @@ class BackendName(str, Enum):
     CODEX = "codex"
     CLAUDE = "claude"
     GEMINI = "gemini"
+    ANTIGRAVITY = "antigravity"
 
 
 class TurnStatus(str, Enum):

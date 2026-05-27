@@ -143,6 +143,9 @@ BACKEND_COMMAND_TRANSLATIONS: dict[str, dict[str, str]] = {
     "gemini": {
         "/compact": "/compress",
     },
+    "antigravity": {
+        "/compact": "/compress",
+    },
 }
 
 
@@ -316,6 +319,36 @@ BACKEND_SLASH_COMMAND_SPECS: dict[str, tuple[SlashCommandSpec, ...]] = {
         SlashCommandSpec("/setup-github", "Set up GitHub integration."),
         SlashCommandSpec("/terminal-setup", "Configure terminal integration."),
         SlashCommandSpec("/upgrade", "Upgrade Gemini CLI."),
+    ),
+    "antigravity": (
+        SlashCommandSpec("/about", "Show Antigravity CLI information."),
+        SlashCommandSpec("/auth", "Manage Antigravity authentication."),
+        SlashCommandSpec("/changelog", "Show Antigravity CLI changelog."),
+        SlashCommandSpec("/clear", "Clear Antigravity conversation state."),
+        SlashCommandSpec("/commands", "Manage custom Antigravity commands."),
+        SlashCommandSpec("/compress", "Compress Antigravity context.", aliases=("/compact",)),
+        SlashCommandSpec("/copy", "Copy Antigravity output."),
+        SlashCommandSpec("/diff", "Show Antigravity-visible git diff."),
+        SlashCommandSpec("/help", "Show Antigravity help."),
+        SlashCommandSpec("/hooks", "Manage Antigravity hooks."),
+        SlashCommandSpec("/init", "Create or update Antigravity project instructions."),
+        SlashCommandSpec("/login", "Sign in to Antigravity."),
+        SlashCommandSpec("/logout", "Sign out of Antigravity."),
+        SlashCommandSpec("/mcp", "Manage Antigravity MCP servers."),
+        SlashCommandSpec("/memory", "Manage Antigravity memory."),
+        SlashCommandSpec("/model", "Choose or inspect the Antigravity model."),
+        SlashCommandSpec("/permissions", "Manage Antigravity permissions."),
+        SlashCommandSpec("/plan", "Use Antigravity planning mode."),
+        SlashCommandSpec("/plugin", "Manage Antigravity plugins.", aliases=("/plugins",)),
+        SlashCommandSpec("/quota", "Show Antigravity quota information."),
+        SlashCommandSpec("/quit", "Exit Antigravity.", aliases=("/exit",)),
+        SlashCommandSpec("/resume", "Resume an Antigravity conversation."),
+        SlashCommandSpec("/review", "Ask Antigravity to review code changes."),
+        SlashCommandSpec("/settings", "Open Antigravity settings."),
+        SlashCommandSpec("/skills", "Manage Antigravity skills."),
+        SlashCommandSpec("/status", "Show Antigravity status."),
+        SlashCommandSpec("/statusline", "Configure Antigravity statusline."),
+        SlashCommandSpec("/usage", "Show Antigravity usage information."),
     ),
 }
 

@@ -23,7 +23,10 @@ def test_structured_capability_facts_cover_required_dimensions():
 
         assert set(by_key) == REQUIRED_FACTS
         assert all(fact.explanation for fact in facts)
-        assert by_key["model_flag_support"].supported is True
+        if backend is BackendName.ANTIGRAVITY:
+            assert by_key["model_flag_support"].supported is False
+        else:
+            assert by_key["model_flag_support"].supported is True
         assert by_key["persistent_session_support"].supported is True
         assert by_key["native_slash_passthrough"].supported is True
         assert by_key["handoff_suitability"].supported is True
@@ -33,12 +36,14 @@ def test_unsupported_capability_returns_explanation():
     codex_summary = backend_capability_fact("codex", "summary_suitability")
     claude_summary = backend_capability_fact("claude", "summary_suitability")
     gemini_summary = backend_capability_fact("gemini", "summary_suitability")
+    antigravity_summary = backend_capability_fact("antigravity", "summary_suitability")
 
     assert codex_summary.supported is False
     assert "Gemini-backed" in codex_summary.explanation
     assert claude_summary.supported is False
     assert "Gemini-backed" in claude_summary.explanation
     assert gemini_summary.supported is True
+    assert antigravity_summary.supported is True
 
 
 def test_unknown_capability_reports_valid_keys():

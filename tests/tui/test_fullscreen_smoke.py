@@ -157,7 +157,7 @@ def test_fullscreen_backend_picker_ignores_invalid_number_before_selection(tui_a
     app = tui_app()
 
     app.expect_text("Select Backend")
-    app.type("4")
+    app.type("5")
     app.expect_text("Select Backend")
 
     app.type("2")
@@ -191,6 +191,25 @@ def test_fullscreen_prompt_submission_history_and_fake_backend_output(tui_app) -
     sessions = load_tui_sessions(app)
     turns = [turn for session in sessions for turn in session["turns"]]
     assert [turn["prompt"] for turn in turns] == ["hello"]
+    assert turns[0]["status"] == "completed"
+
+
+def test_fullscreen_antigravity_prompt_submission_uses_fake_backend(tui_app) -> None:
+    app = tui_app("--backend", "antigravity", cols=140)
+
+    app.expect_text("Ready")
+    app.expect_text("[antigravity]")
+
+    app.type("hello agy")
+    app.enter()
+    app.expect_text("fake reply to hello agy")
+
+    app.type("/quit")
+    app.enter()
+    app.expect_exit(0)
+
+    turns = [turn for session in load_tui_sessions(app) for turn in session["turns"]]
+    assert [turn["backend"] for turn in turns] == ["antigravity"]
     assert turns[0]["status"] == "completed"
 
 
@@ -363,6 +382,7 @@ def test_fullscreen_model_command_without_args_opens_picker(tui_app) -> None:
         ("codex", "full-access", "sandbox_mode=danger-full-access"),
         ("claude", "ask", "permission_mode=default"),
         ("gemini", "auto-edit", "approval_mode=auto_edit"),
+        ("antigravity", "full-access", "permission_mode=dangerously-skip-permissions"),
     ],
 )
 def test_fullscreen_permissions_command_updates_backend_specific_adapter_permissions(

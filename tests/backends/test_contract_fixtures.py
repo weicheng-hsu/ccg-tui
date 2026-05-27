@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from ccg_tui.backends.base import BackendAdapter, BackendEvent
+from ccg_tui.backends.antigravity import AntigravityAdapter
 from ccg_tui.backends.claude import ClaudeAdapter
 from ccg_tui.backends.codex import CodexAdapter
 from ccg_tui.backends.gemini import GeminiAdapter
@@ -97,6 +98,21 @@ def _parse_fixture(adapter: BackendAdapter, fixture_name: str) -> list[BackendEv
                 ("output_started", None, None, None),
                 ("output_delta", None, "checked", None),
                 ("backend_succeeded", None, None, None),
+            ],
+        ),
+        (
+            AntigravityAdapter(),
+            "antigravity_success.txt",
+            [
+                ("output_started", None, None, None),
+                ("output_delta", None, "CCG_ANTIGRAVITY_SMOKE\n", None),
+            ],
+        ),
+        (
+            AntigravityAdapter(),
+            "antigravity_failure.jsonl",
+            [
+                ("backend_failed", None, None, "backend_error"),
             ],
         ),
     ],

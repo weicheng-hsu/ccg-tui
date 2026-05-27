@@ -19,6 +19,7 @@ class PermissionPresetSpec:
     codex_sandbox_mode: str
     claude_permission_mode: str
     gemini_approval_mode: str
+    antigravity_permission_mode: str
 
     def values_for_backend(self, backend: BackendName | str) -> dict[str, str]:
         normalized = normalize_backend_name(backend)
@@ -31,6 +32,8 @@ class PermissionPresetSpec:
             return {"permission_mode": self.claude_permission_mode}
         if normalized is BackendName.GEMINI:
             return {"approval_mode": self.gemini_approval_mode}
+        if normalized is BackendName.ANTIGRAVITY:
+            return {"permission_mode": self.antigravity_permission_mode}
         return {}
 
 
@@ -43,6 +46,7 @@ PERMISSION_PRESET_SPECS: tuple[PermissionPresetSpec, ...] = (
         codex_sandbox_mode="read-only",
         claude_permission_mode="plan",
         gemini_approval_mode="plan",
+        antigravity_permission_mode="sandbox",
     ),
     PermissionPresetSpec(
         key="ask",
@@ -52,6 +56,7 @@ PERMISSION_PRESET_SPECS: tuple[PermissionPresetSpec, ...] = (
         codex_sandbox_mode="workspace-write",
         claude_permission_mode="default",
         gemini_approval_mode="default",
+        antigravity_permission_mode="default",
     ),
     PermissionPresetSpec(
         key="auto-edit",
@@ -61,6 +66,7 @@ PERMISSION_PRESET_SPECS: tuple[PermissionPresetSpec, ...] = (
         codex_sandbox_mode="workspace-write",
         claude_permission_mode="acceptEdits",
         gemini_approval_mode="auto_edit",
+        antigravity_permission_mode="proceed-in-sandbox",
     ),
     PermissionPresetSpec(
         key="full-access",
@@ -70,6 +76,7 @@ PERMISSION_PRESET_SPECS: tuple[PermissionPresetSpec, ...] = (
         codex_sandbox_mode="danger-full-access",
         claude_permission_mode="bypassPermissions",
         gemini_approval_mode="yolo",
+        antigravity_permission_mode="dangerously-skip-permissions",
     ),
 )
 
@@ -187,6 +194,27 @@ BACKEND_CAPABILITY_REGISTRY: dict[BackendName, BackendCapabilityProfile] = {
             "need Gemini-native policy or tool inspection",
         ),
         permission_dimensions=("approval_mode",),
+    ),
+    BackendName.ANTIGRAVITY: BackendCapabilityProfile(
+        backend=BackendName.ANTIGRAVITY,
+        display_name="Antigravity",
+        summary="Google Antigravity CLI backend using agy print mode with conservative permission flags.",
+        strengths=(
+            "Google-backed coding agent replacement path",
+            "terminal-first Antigravity workflows",
+            "plugin, skill, MCP, and hook ecosystem when exposed by agy",
+        ),
+        limitations=(
+            "vendor-native auth required",
+            "model selection is currently controlled by Antigravity CLI settings rather than a verified command flag",
+            "print mode is plain stdout; structured activity events depend on future CLI contracts",
+        ),
+        routing_triggers=(
+            "need Google consumer CLI path after Gemini CLI transition",
+            "manual handoff target is Antigravity",
+            "need Antigravity-native plugin, skill, or MCP commands",
+        ),
+        permission_dimensions=("permission_mode",),
     ),
 }
 
@@ -314,6 +342,44 @@ BACKEND_CAPABILITY_FACTS: dict[BackendName, dict[str, CapabilityFact]] = {
             "Handoff suitability",
             True,
             "Gemini can be a manual handoff source or target through CCG packet injection.",
+        ),
+    },
+    BackendName.ANTIGRAVITY: {
+        "model_flag_support": CapabilityFact(
+            "model_flag_support",
+            "Model flag support",
+            False,
+            "Antigravity CLI 1.0.2 help does not expose a verified model flag; model choice remains controlled by native CLI settings.",
+        ),
+        "persistent_session_support": CapabilityFact(
+            "persistent_session_support",
+            "Persistent session support",
+            True,
+            "CCG can run Antigravity through print mode for fullscreen turns and hand terminal control to agy for native interactive commands.",
+        ),
+        "permission_concepts": CapabilityFact(
+            "permission_concepts",
+            "Permission concepts",
+            True,
+            "Antigravity exposes sandbox and dangerously-skip-permissions CLI flags; finer tool modes remain backend-owned.",
+        ),
+        "native_slash_passthrough": CapabilityFact(
+            "native_slash_passthrough",
+            "Native slash passthrough",
+            True,
+            "Backend-native Antigravity commands can be routed after CCG-local commands take precedence.",
+        ),
+        "summary_suitability": CapabilityFact(
+            "summary_suitability",
+            "Summary suitability",
+            True,
+            "Antigravity print mode can return headless stdout locally; CCG still defaults summaries to Gemini until migration is explicit.",
+        ),
+        "handoff_suitability": CapabilityFact(
+            "handoff_suitability",
+            "Handoff suitability",
+            True,
+            "Antigravity can be a manual handoff source or target through CCG packet injection.",
         ),
     },
 }
@@ -540,12 +606,26 @@ def _infer_custom_level(backend: BackendName, values: dict[str, str]) -> int:
             "auto_edit": _PERMISSION_LEVELS["auto-edit"],
             "yolo": _PERMISSION_LEVELS["full-access"],
         }.get(mode, _PERMISSION_LEVELS["ask"])
+    if backend is BackendName.ANTIGRAVITY:
+        mode = values.get("permission_mode", "")
+        return {
+            "sandbox": _PERMISSION_LEVELS["plan"],
+            "default": _PERMISSION_LEVELS["ask"],
+            "proceed-in-sandbox": _PERMISSION_LEVELS["auto-edit"],
+            "dangerously-skip-permissions": _PERMISSION_LEVELS["full-access"],
+        }.get(mode, _PERMISSION_LEVELS["ask"])
     return _PERMISSION_LEVELS["ask"]
 
 
 def _sandboxed_for_backend(backend: BackendName, values: dict[str, str], level: int) -> bool | None:
     if backend is BackendName.CODEX:
         return values.get("sandbox_mode") != "danger-full-access"
+    if backend is BackendName.ANTIGRAVITY:
+        mode = values.get("permission_mode", "")
+        if mode in {"sandbox", "proceed-in-sandbox"}:
+            return True
+        if mode == "dangerously-skip-permissions":
+            return False
     if level >= _PERMISSION_LEVELS["full-access"]:
         return False
     return None

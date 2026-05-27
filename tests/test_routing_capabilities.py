@@ -14,6 +14,7 @@ def test_capability_registry_covers_all_supported_backends():
         BackendName.CODEX,
         BackendName.CLAUDE,
         BackendName.GEMINI,
+        BackendName.ANTIGRAVITY,
     }
     assert all(profile.routing_triggers for profile in profiles)
     assert all(profile.permission_dimensions for profile in profiles)
@@ -26,11 +27,13 @@ def test_permission_state_infers_known_cross_backend_presets():
     )
     claude_state = permission_state_for_backend("claude", {"permission_mode": "default"})
     gemini_state = permission_state_for_backend("gemini", {"approval_mode": "default"})
+    antigravity_state = permission_state_for_backend("antigravity", {"permission_mode": "default"})
 
     assert codex_state.preset_key == "ask"
     assert claude_state.preset_key == "ask"
     assert gemini_state.preset_key == "ask"
-    assert codex_state.level == claude_state.level == gemini_state.level
+    assert antigravity_state.preset_key == "ask"
+    assert codex_state.level == claude_state.level == gemini_state.level == antigravity_state.level
 
 
 def test_permission_compatibility_uses_equivalent_preset_without_widening():
@@ -70,4 +73,7 @@ def test_permission_values_for_backend_are_backend_specific():
     }
     assert permission_values_for_backend("full-access", "gemini") == {
         "approval_mode": "yolo",
+    }
+    assert permission_values_for_backend("full-access", "antigravity") == {
+        "permission_mode": "dangerously-skip-permissions",
     }

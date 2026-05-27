@@ -17,6 +17,7 @@ from uuid import uuid4
 
 from ccg_tui.backends.base import BackendAdapter
 from ccg_tui.backends import build_backend
+from ccg_tui.backends.antigravity import antigravity_model_options, current_antigravity_model, set_antigravity_model
 from ccg_tui.handoff import HandoffPacket, build_handoff_packet
 from ccg_tui.models import BackendName, EventType, RoutingDecisionRecord, SessionRecord, TurnRecord, TurnStatus
 from ccg_tui.resume_context import DEFAULT_RESUME_CONTEXT_TURNS, ResumeContextConfig
@@ -48,7 +49,7 @@ from ccg_tui.transcript import (
     turn_transcript_state,
 )
 
-BACKEND_CHOICES = ("codex", "claude", "gemini")
+BACKEND_CHOICES = ("codex", "claude", "gemini", "antigravity")
 SCREEN_CLEAR = "\x1b[2J\x1b[H"
 ANSI_RESET = "\x1b[0m"
 ANSI_BOLD = "\x1b[1m"
@@ -56,16 +57,19 @@ BACKEND_ANSI = {
     "codex": "\x1b[38;5;45m",
     "claude": "\x1b[38;5;214m",
     "gemini": "\x1b[38;5;141m",
+    "antigravity": "\x1b[38;5;82m",
 }
 BACKEND_GLYPHS = {
     "codex": "C",
     "claude": "K",
     "gemini": "G",
+    "antigravity": "A",
 }
 BACKEND_VENDOR_LABELS = {
     "codex": "OpenAI",
     "claude": "Anthropic",
     "gemini": "Google",
+    "antigravity": "Google",
 }
 SHIFT_ENTER_SEQUENCES = (
     "\x1b[27;2;13~",  # xterm modifyOtherKeys / formatOtherKeys
@@ -89,6 +93,7 @@ class PermissionOption:
     codex_sandbox_mode: str
     claude_permission_mode: str
     gemini_approval_mode: str
+    antigravity_permission_mode: str
 
 
 FALLBACK_MODEL_OPTIONS: dict[str, tuple[ModelOption, ...]] = {
@@ -132,6 +137,7 @@ PERMISSION_OPTIONS: tuple[PermissionOption, ...] = tuple(
         codex_sandbox_mode=spec.codex_sandbox_mode,
         claude_permission_mode=spec.claude_permission_mode,
         gemini_approval_mode=spec.gemini_approval_mode,
+        antigravity_permission_mode=spec.antigravity_permission_mode,
     )
     for spec in PERMISSION_PRESET_SPECS
 )
@@ -791,11 +797,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--transcript-dir", default="runtime/transcripts")
     parser.add_argument("--simple-ui", action="store_true", help="Use the line-by-line fallback UI instead of fullscreen prompt_toolkit mode")
     session_actions = parser.add_mutually_exclusive_group()
-    session_actions.add_argument("--summarize-session", help="Generate a Gemini-backed summary checkpoint for an existing transcript session id")
+    session_actions.add_argument("--summarize-session", help="Generate a summary checkpoint for an existing transcript session id")
     session_actions.add_argument("--list-sessions", action="store_true", help="List local transcript sessions")
     session_actions.add_argument("--resume-session", help="Resume a local transcript session")
     session_actions.add_argument("--handoff-session", help="Preview or export a manual handoff packet for an existing transcript session id")
-    parser.add_argument("--target-backend", help="Target backend for --handoff-session: codex, claude, or gemini")
+    parser.add_argument("--target-backend", help="Target backend for --handoff-session: codex, claude, gemini, or antigravity")
     parser.add_argument("--target-model", help="Optional target model to record in the handoff packet")
     parser.add_argument("--handoff-goal", default="", help="Current user goal to include in the handoff packet")
     parser.add_argument("--handoff-output", help="Optional file path to write the handoff preview instead of printing it")
@@ -823,14 +829,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--resume-context", choices=("auto", "off"), default="auto")
     parser.add_argument("--resume-context-turns", type=non_negative_int, default=DEFAULT_RESUME_CONTEXT_TURNS)
-    parser.add_argument("--summary-backend", choices=("gemini",), default="gemini")
+    parser.add_argument("--summary-backend", choices=("gemini", "antigravity"), default="gemini")
     parser.add_argument("--summary-scope", choices=("task", "session"), default="task")
     parser.add_argument("--summary-task-id", default="task-main")
     return parser
 
 
 def normalize_backend_choice(choice: str) -> str | None:
-    mapping = {"1": "codex", "2": "claude", "3": "gemini"}
+    mapping = {"1": "codex", "2": "claude", "3": "gemini", "4": "antigravity"}
     normalized = choice.strip().lower()
     backend = mapping.get(normalized, normalized)
     return backend if backend in BACKEND_CHOICES else None
@@ -843,6 +849,7 @@ def build_backend_picker_lines(selected_backend: str = "codex") -> list[str]:
         f"  1. codex{'   <' if selected_backend == 'codex' else ''}",
         f"  2. claude{'  <' if selected_backend == 'claude' else ''}",
         f"  3. gemini{'  <' if selected_backend == 'gemini' else ''}",
+        f"  4. antigravity{'  <' if selected_backend == 'antigravity' else ''}",
         "",
         f"> {selected_backend}",
         "",
@@ -860,12 +867,13 @@ def choose_backend(
     print_fn("  1) codex")
     print_fn("  2) claude")
     print_fn("  3) gemini")
+    print_fn("  4) antigravity")
     while True:
         answer = input_fn("backend> ")
         backend = normalize_backend_choice(answer)
         if backend is not None:
             return backend
-        print_fn("Invalid selection. Choose 1/2/3 or codex/claude/gemini.")
+        print_fn("Invalid selection. Choose 1/2/3/4 or codex/claude/gemini/antigravity.")
 
 
 def default_controller_factory(transcript_dir: str, cwd: Path) -> Callable[[str], SessionController]:
@@ -939,12 +947,17 @@ def format_session_list(sessions: list[SessionMetadata]) -> str:
 
 
 def build_summary_backend(name: str = "gemini"):
-    if name != "gemini":
-        raise ValueError("Only Gemini summary backend is implemented")
-    return build_backend("gemini")
+    if name not in {"gemini", "antigravity"}:
+        raise ValueError("Only Gemini and Antigravity summary backends are implemented")
+    return build_backend(name)
 
 
 def current_model(controller: SessionController) -> str | None:
+    if controller.session.backend is BackendName.ANTIGRAVITY:
+        try:
+            return current_antigravity_model()
+        except ValueError:
+            return None
     adapter = getattr(controller, "adapter", None)
     model = getattr(adapter, "model", None)
     return model if isinstance(model, str) and model else None
@@ -966,6 +979,8 @@ def current_permission_values(controller: SessionController) -> dict[str, str]:
         return {"permission_mode": getattr(adapter, "permission_mode", "default")}
     if backend == "gemini":
         return {"approval_mode": getattr(adapter, "approval_mode", "default")}
+    if backend == "antigravity":
+        return {"permission_mode": getattr(adapter, "permission_mode", "default")}
     return {}
 
 
@@ -1309,6 +1324,18 @@ def format_permission_options(controller: SessionController, selected_index: int
 
 def apply_model_selection(controller: SessionController, model: str | None) -> str:
     backend = controller.session.backend.value
+    if backend == "antigravity":
+        available_models = tuple(
+            option.value
+            for option in model_options_for_backend(backend)
+            if option.value is not None
+        )
+        try:
+            selected_model = set_antigravity_model(model, available_models=available_models)
+        except ValueError as exc:
+            return str(exc)
+        controller.attach_backend(build_backend(backend, model=selected_model, **permission_kwargs_for_backend(controller)))
+        return f"Model set to {selected_model or 'default'} for {backend}."
     controller.attach_backend(build_backend(backend, model=model, **permission_kwargs_for_backend(controller)))
     return f"Model set to {model or 'default'} for {backend}."
 
@@ -2893,21 +2920,22 @@ def run_prompt_toolkit_interface(
 
     def _build_capability_matrix_lines() -> list[str]:
         rows = [
-            ("long-context refactor", {"codex": "fit", "claude": "fit", "gemini": "partial"}, "all three accept; gemini caps lower than 200k"),
-            ("web search · grounded", {"codex": "no", "claude": "partial", "gemini": "fit"}, "gemini grounding is strongest"),
-            ("rapid in-loop edits", {"codex": "fit", "claude": "partial", "gemini": "partial"}, "codex tool latency is lowest in-loop"),
-            ("plan-then-execute", {"codex": "partial", "claude": "fit", "gemini": "partial"}, "claude plan mode preserves intent"),
-            ("large diff review", {"codex": "partial", "claude": "fit", "gemini": "fit"}, "gemini handles 1M-class context"),
-            ("shell · workspace-write", {"codex": "fit", "claude": "fit", "gemini": "fit"}, "permission widening stays manual"),
+            ("long-context refactor", {"codex": "fit", "claude": "fit", "gemini": "partial", "antigravity": "partial"}, "vendor limits differ; handoff remains manual"),
+            ("web search grounded", {"codex": "no", "claude": "partial", "gemini": "fit", "antigravity": "fit"}, "google-backed CLIs fit grounded search"),
+            ("rapid in-loop edits", {"codex": "fit", "claude": "partial", "gemini": "partial", "antigravity": "partial"}, "codex tool latency is lowest in-loop"),
+            ("plan-then-execute", {"codex": "partial", "claude": "fit", "gemini": "partial", "antigravity": "fit"}, "antigravity shares the newer google agent path"),
+            ("large diff review", {"codex": "partial", "claude": "fit", "gemini": "fit", "antigravity": "fit"}, "google and claude paths fit broad context"),
+            ("shell workspace", {"codex": "fit", "claude": "fit", "gemini": "fit", "antigravity": "fit"}, "permission widening stays manual"),
         ]
-        header = "task area                 codex    claude   gemini"
+        header = "task area                 codex    claude   gemini   antig"
         lines = [header, " " * len(header)]
         for area, statuses, note in rows:
             row = (
                 f"{area:<24} "
                 f"{_capability_status_cell(statuses['codex'])} "
                 f"{_capability_status_cell(statuses['claude'])} "
-                f"{_capability_status_cell(statuses['gemini'])}"
+                f"{_capability_status_cell(statuses['gemini'])} "
+                f"{_capability_status_cell(statuses['antigravity'])}"
             )
             lines.append(row.rstrip())
             lines.append(f"note · {note}")

@@ -78,6 +78,8 @@ class FakeController:
             self.adapter.permission_mode = "default"
         elif backend == "gemini":
             self.adapter.approval_mode = "default"
+        elif backend == "antigravity":
+            self.adapter.permission_mode = "default"
         self.prompts = []
         self.closed = False
 
@@ -262,7 +264,7 @@ def test_format_turn_summary_surfaces_interrupted_recovery_metadata():
 
 
 def test_choose_backend_retries_until_valid_choice():
-    answers = iter(["4", "claude"])
+    answers = iter(["5", "claude"])
     printed: list[str] = []
 
     backend = choose_backend(input_fn=lambda _: next(answers), print_fn=printed.append)
@@ -276,17 +278,21 @@ def test_normalize_backend_choice_accepts_indices_and_names():
     assert normalize_backend_choice("1") == "codex"
     assert normalize_backend_choice(" 2 ") == "claude"
     assert normalize_backend_choice("gemini") == "gemini"
+    assert normalize_backend_choice("4") == "antigravity"
+    assert normalize_backend_choice("antigravity") == "antigravity"
     assert normalize_backend_choice("unknown") is None
 
 
-def test_build_summary_backend_is_gemini_only():
+def test_build_summary_backend_supports_gemini_and_antigravity():
     assert build_summary_backend("gemini").name is BackendName.GEMINI
+    assert build_summary_backend("antigravity").name is BackendName.ANTIGRAVITY
     try:
         build_summary_backend("codex")
     except ValueError as exc:
         assert "gemini" in str(exc).lower()
+        assert "antigravity" in str(exc).lower()
     else:
-        raise AssertionError("expected non-gemini summary backend to be rejected")
+        raise AssertionError("expected unsupported summary backend to be rejected")
 
 
 def test_build_backend_picker_lines_lists_choices_and_shortcuts():
@@ -297,6 +303,7 @@ def test_build_backend_picker_lines_lists_choices_and_shortcuts():
     assert "1. codex" in text
     assert "2. claude" in text
     assert "3. gemini" in text
+    assert "4. antigravity" in text
     assert "Enter choose backend" in text
     assert "Esc quit" in text
     assert "> claude" in text
@@ -565,6 +572,7 @@ def test_current_permission_label_matches_backend_values():
     assert current_permission_label(FakeController("codex")) == "Ask before actions"
     assert current_permission_label(FakeController("claude")) == "Ask before actions"
     assert current_permission_label(FakeController("gemini")) == "Ask before actions"
+    assert current_permission_label(FakeController("antigravity")) == "Ask before actions"
 
 
 def test_format_capability_registry_is_advisory_and_covers_backends():
@@ -579,6 +587,7 @@ def test_format_capability_registry_is_advisory_and_covers_backends():
     assert "Backend : codex" in text
     assert "Backend : claude" in text
     assert "Backend : gemini" in text
+    assert "Backend : antigravity" in text
     assert "Model flag support: yes" in text
     assert "Summary suitability: no" in text
     assert "Summary suitability: yes" in text

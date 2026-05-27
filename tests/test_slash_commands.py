@@ -131,6 +131,7 @@ def test_parse_slash_command_identifies_product_commands_and_aliases():
 def test_parse_slash_command_translates_core_backend_commands():
     codex_memory = parse_slash_command("/memory", "codex")
     gemini_compact = parse_slash_command("/compact now", "gemini")
+    antigravity_compact = parse_slash_command("/compact now", "antigravity")
 
     assert codex_memory is not None
     assert codex_memory.action is SlashCommandAction.BACKEND
@@ -138,6 +139,9 @@ def test_parse_slash_command_translates_core_backend_commands():
     assert gemini_compact is not None
     assert gemini_compact.action is SlashCommandAction.BACKEND
     assert gemini_compact.backend_prompt == "/compress now"
+    assert antigravity_compact is not None
+    assert antigravity_compact.action is SlashCommandAction.BACKEND
+    assert antigravity_compact.backend_prompt == "/compress now"
 
 
 def test_parse_slash_command_handles_model_as_product_command():
@@ -186,11 +190,17 @@ def test_parse_slash_command_identifies_task_command_family_as_local():
 
 
 def test_parse_slash_command_keeps_mcp_as_interactive_backend_command():
-    parsed = parse_slash_command("/mcp", "claude")
+    parsed = parse_slash_command("/mcp", "antigravity")
 
     assert parsed is not None
     assert parsed.action is SlashCommandAction.INTERACTIVE_BACKEND
     assert parsed.backend_prompt == "/mcp"
+
+
+def test_slash_command_completer_includes_antigravity_native_commands():
+    completions = list(SlashCommandCompleter(lambda: "antigravity").get_completions(Document("/plug"), None))
+
+    assert [completion.text for completion in completions] == ["/plugin", "/plugins"]
 
 
 def test_parse_slash_command_passes_unknown_commands_through():
