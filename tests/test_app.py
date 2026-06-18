@@ -9,6 +9,7 @@ from ccg_tui.app import (
     choose_backend,
     handle_task_command,
     build_backend_picker_lines,
+    default_controller_factory,
     build_header_line,
     build_handoff_preview,
     build_sidebar_text,
@@ -20,6 +21,7 @@ from ccg_tui.app import (
     format_capability_registry,
     format_handoff_execution_confirmation,
     current_permission_label,
+    current_permission_values,
     current_model_label,
     build_packet_routing_decision,
     format_session_list,
@@ -718,6 +720,25 @@ def test_current_permission_label_matches_backend_values():
     assert current_permission_label(FakeController("claude")) == "Ask before actions"
     assert current_permission_label(FakeController("gemini")) == "Ask before actions"
     assert current_permission_label(FakeController("antigravity")) == "Ask before actions"
+
+
+@pytest.mark.parametrize(
+    ("backend", "expected_values"),
+    [
+        ("codex", {"approval_policy": "never", "sandbox_mode": "danger-full-access"}),
+        ("claude", {"permission_mode": "dangerously-skip-permissions"}),
+        ("gemini", {"approval_mode": "yolo"}),
+        ("antigravity", {"permission_mode": "dangerously-skip-permissions"}),
+    ],
+)
+def test_default_controller_factory_uses_full_access_permissions(tmp_path, backend, expected_values):
+    controller = default_controller_factory("transcripts", tmp_path)(backend)
+
+    try:
+        assert current_permission_label(controller) == "Full access"
+        assert current_permission_values(controller) == expected_values
+    finally:
+        controller.close()
 
 
 def test_format_capability_registry_is_advisory_and_covers_backends():
@@ -2010,7 +2031,7 @@ def test_cli_handoff_session_reports_missing_session(tmp_path, monkeypatch, caps
 def test_cli_resume_session_prompt_uses_existing_session_id_and_appends_turn(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     adapter = FakeCliAdapter()
-    monkeypatch.setattr("ccg_tui.app.build_backend", lambda name: adapter)
+    monkeypatch.setattr("ccg_tui.app.build_backend", lambda name, **kwargs: adapter)
     store = TranscriptStore(tmp_path / "runtime" / "transcripts")
     store.save_session(
         SessionRecord(
@@ -2051,7 +2072,7 @@ def test_cli_resume_session_prompt_uses_existing_session_id_and_appends_turn(tmp
 def test_cli_resume_context_can_be_disabled(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     adapter = FakeCliAdapter()
-    monkeypatch.setattr("ccg_tui.app.build_backend", lambda name: adapter)
+    monkeypatch.setattr("ccg_tui.app.build_backend", lambda name, **kwargs: adapter)
     store = TranscriptStore(tmp_path / "runtime" / "transcripts")
     store.save_session(
         SessionRecord(
@@ -2116,7 +2137,7 @@ def test_cli_resume_session_does_not_translate_backend_file_errors_to_missing_se
     capsys,
 ):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("ccg_tui.app.build_backend", lambda name: MissingFileCliAdapter())
+    monkeypatch.setattr("ccg_tui.app.build_backend", lambda name, **kwargs: MissingFileCliAdapter())
     store = TranscriptStore(tmp_path / "runtime" / "transcripts")
     store.save_session(
         SessionRecord(

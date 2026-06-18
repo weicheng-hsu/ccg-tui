@@ -859,10 +859,14 @@ def choose_backend(
         print_fn("Invalid selection. Choose 1/2/3/4 or codex/claude/gemini/antigravity.")
 
 
+def build_backend_with_default_permissions(backend: str, *, model: str | None = None):
+    return build_backend(backend, model=model, **default_permission_values_for_backend(backend))
+
+
 def default_controller_factory(transcript_dir: str, cwd: Path) -> Callable[[str], SessionController]:
     def factory(backend: str) -> SessionController:
         store = TranscriptStore(cwd / transcript_dir)
-        return SessionController(adapter=build_backend(backend), store=store, cwd=cwd)
+        return SessionController(adapter=build_backend_with_default_permissions(backend), store=store, cwd=cwd)
 
     return factory
 
@@ -876,7 +880,7 @@ def resume_controller_factory(
     def factory(backend: str) -> SessionController:
         resume_cwd = Path(session.workspace_cwd) if session.workspace_cwd else cwd
         return SessionController.resume(
-            adapter=build_backend(backend),
+            adapter=build_backend_with_default_permissions(backend),
             store=store,
             cwd=resume_cwd,
             session=session,
@@ -932,7 +936,7 @@ def format_session_list(sessions: list[SessionMetadata]) -> str:
 def build_summary_backend(name: str = "gemini"):
     if name not in {"gemini", "antigravity"}:
         raise ValueError("Only Gemini and Antigravity summary backends are implemented")
-    return build_backend(name)
+    return build_backend_with_default_permissions(name)
 
 
 def current_model(controller: SessionController) -> str | None:
@@ -2388,7 +2392,7 @@ def run_simple_interface(
         old_controller = controller
         resume_cwd = Path(session.workspace_cwd) if session.workspace_cwd else controller.cwd
         controller = SessionController.resume(
-            adapter=build_backend(session.backend.value),
+            adapter=build_backend_with_default_permissions(session.backend.value),
             store=controller.store,
             cwd=resume_cwd,
             session=session,
@@ -3735,7 +3739,7 @@ def run_prompt_toolkit_interface(
             return False, f"Session {session_id} uses {session.backend.value}; current backend is {current.session.backend.value}."
         resume_cwd = Path(session.workspace_cwd) if session.workspace_cwd else current.cwd
         controller = SessionController.resume(
-            adapter=build_backend(session.backend.value),
+            adapter=build_backend_with_default_permissions(session.backend.value),
             store=current.store,
             cwd=resume_cwd,
             session=session,
@@ -4430,7 +4434,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("--handoff-goal is required with --handoff-execute", file=sys.stderr)
                 return 2
             controller, turn = execute_handoff_packet(
-                adapter=build_backend(target_backend, model=args.target_model),
+                adapter=build_backend_with_default_permissions(target_backend, model=args.target_model),
                 store=store,
                 cwd=Path(session.workspace_cwd) if session.workspace_cwd else cwd,
                 source_session=session,

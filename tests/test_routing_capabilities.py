@@ -69,7 +69,7 @@ def test_permission_values_for_backend_are_backend_specific():
         "sandbox_mode": "danger-full-access",
     }
     assert permission_values_for_backend("full-access", "claude") == {
-        "permission_mode": "bypassPermissions",
+        "permission_mode": "dangerously-skip-permissions",
     }
     assert permission_values_for_backend("full-access", "gemini") == {
         "approval_mode": "yolo",

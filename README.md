@@ -191,15 +191,17 @@ Use newline- or comma-separated model values; Codex, Claude, and Gemini also
 accept a JSON list of `{ "label": "...", "value": "...", "description": "..." }`
 objects.
 
-The default permission preset is `ask`.
+The default permission preset is `full-access`.
 
 | Preset | Codex | Claude | Gemini | Antigravity |
 | --- | --- | --- | --- | --- |
 | `plan` | `approval_policy=on-request`, `sandbox_mode=read-only` | `permission_mode=plan` | `approval_mode=plan` | `permission_mode=sandbox` |
 | `ask` | `approval_policy=on-request`, `sandbox_mode=workspace-write` | `permission_mode=default` | `approval_mode=default` | `permission_mode=default` |
 | `auto-edit` | `approval_policy=never`, `sandbox_mode=workspace-write` | `permission_mode=acceptEdits` | `approval_mode=auto_edit` | `permission_mode=proceed-in-sandbox` |
-| `full-access` | `approval_policy=never`, `sandbox_mode=danger-full-access` | `permission_mode=bypassPermissions` | `approval_mode=yolo` | `permission_mode=dangerously-skip-permissions` |
+| `full-access` | `approval_policy=never`, `sandbox_mode=danger-full-access` | `permission_mode=dangerously-skip-permissions` | `approval_mode=yolo` | `permission_mode=dangerously-skip-permissions` |
 
+For Claude Code, `full-access` launches with
+`--dangerously-skip-permissions`.
 For Antigravity, CCG maps these presets onto the verified `agy` CLI flags:
 `sandbox` and `proceed-in-sandbox` launch with `--sandbox`,
 `dangerously-skip-permissions` launches with

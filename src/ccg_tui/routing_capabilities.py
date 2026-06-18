@@ -7,7 +7,7 @@ from ccg_tui.models import BackendName
 
 
 ROUTING_POLICY_REFERENCE = "README.md"
-DEFAULT_PERMISSION_PRESET_KEY = "ask"
+DEFAULT_PERMISSION_PRESET_KEY = "full-access"
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +74,7 @@ PERMISSION_PRESET_SPECS: tuple[PermissionPresetSpec, ...] = (
         description="Bypass most prompts and sandboxing; use only in an external sandbox.",
         codex_approval_policy="never",
         codex_sandbox_mode="danger-full-access",
-        claude_permission_mode="bypassPermissions",
+        claude_permission_mode="dangerously-skip-permissions",
         gemini_approval_mode="yolo",
         antigravity_permission_mode="dangerously-skip-permissions",
     ),
@@ -597,6 +597,7 @@ def _infer_custom_level(backend: BackendName, values: dict[str, str]) -> int:
             "default": _PERMISSION_LEVELS["ask"],
             "acceptEdits": _PERMISSION_LEVELS["auto-edit"],
             "bypassPermissions": _PERMISSION_LEVELS["full-access"],
+            "dangerously-skip-permissions": _PERMISSION_LEVELS["full-access"],
         }.get(mode, _PERMISSION_LEVELS["ask"])
     if backend is BackendName.GEMINI:
         mode = values.get("approval_mode", "")
