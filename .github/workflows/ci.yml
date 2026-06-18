@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Run tests
+        run: uv run --locked pytest tests -q
+
+      - name: Build package
+        run: uv build --out-dir dist
+
+      - name: Smoke test wheel
+        run: |
+          uv venv "$RUNNER_TEMP/ccg-tui-smoke"
+          uv pip install --python "$RUNNER_TEMP/ccg-tui-smoke/bin/python" dist/*.whl
+          "$RUNNER_TEMP/ccg-tui-smoke/bin/ccg-tui" --help
+          "$RUNNER_TEMP/ccg-tui-smoke/bin/python" -m ccg_tui --help
