@@ -33,6 +33,14 @@ def test_codex_adapter_forwards_explicit_model_override(tmp_path):
     assert command[command.index("--model") + 1] == "codex-mini-latest"
 
 
+def test_codex_adapter_maps_full_access_to_noninteractive_bypass_flag(tmp_path):
+    adapter = CodexAdapter(approval_policy="never", sandbox_mode="danger-full-access")
+
+    command = adapter.build_command("hello", tmp_path)
+
+    assert "--dangerously-bypass-approvals-and-sandbox" in command
+
+
 def test_codex_adapter_parses_successful_stream():
     adapter = CodexAdapter()
     lines = [

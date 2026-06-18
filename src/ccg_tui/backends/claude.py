@@ -122,6 +122,13 @@ def _claude_composer_still_has_prompt(snapshot: str, baseline: str, prompt: str)
     return _snapshot_has_new_claude_prompt_marker(snapshot, baseline, prompt)
 
 
+def _permission_flags(permission_mode: str) -> list[str]:
+    normalized = permission_mode.strip() or "default"
+    if normalized == "dangerously-skip-permissions":
+        return ["--dangerously-skip-permissions"]
+    return ["--permission-mode", normalized]
+
+
 def _claude_turn_complete(
     *,
     emitted_text: str,
@@ -163,7 +170,7 @@ class ClaudePtySession(BackendSession):
         session_id: str | None = None,
     ) -> list[str]:
         resolved_session_id = session_id or str(uuid4())
-        command = ["claude", "--session-id", resolved_session_id, "--permission-mode", permission_mode]
+        command = ["claude", "--session-id", resolved_session_id, *_permission_flags(permission_mode)]
         if model:
             command.extend(["--model", model])
         return command
@@ -327,7 +334,14 @@ class ClaudeAdapter(BackendAdapter):
         )
 
     def build_command(self, prompt: str, cwd: Path) -> list[str]:
-        command = ["claude", "-p", "--verbose", "--output-format", "stream-json", "--permission-mode", self.permission_mode]
+        command = [
+            "claude",
+            "-p",
+            "--verbose",
+            "--output-format",
+            "stream-json",
+            *_permission_flags(self.permission_mode),
+        ]
         if self.model:
             command.extend(["--model", self.model])
         command.append(prompt)

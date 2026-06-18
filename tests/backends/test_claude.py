@@ -31,6 +31,20 @@ def test_claude_adapter_forwards_explicit_model_override(tmp_path):
     assert command[command.index("--model") + 1] == "sonnet"
 
 
+def test_claude_adapter_maps_dangerous_skip_permissions_to_flag(tmp_path):
+    adapter = ClaudeAdapter(permission_mode="dangerously-skip-permissions")
+
+    command = adapter.build_command("hello", tmp_path)
+    start_command = ClaudePtySession.build_start_command(
+        permission_mode="dangerously-skip-permissions",
+        session_id="session-test",
+    )
+
+    assert "--dangerously-skip-permissions" in command
+    assert "--permission-mode" not in command
+    assert start_command == ["claude", "--session-id", "session-test", "--dangerously-skip-permissions"]
+
+
 def test_claude_adapter_parses_successful_stream():
     adapter = ClaudeAdapter()
     lines = [

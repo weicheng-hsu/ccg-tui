@@ -506,6 +506,8 @@ class CodexAdapter(BackendAdapter):
 
     def build_command(self, prompt: str, cwd: Path) -> list[str]:
         command = ["codex", "exec", "--skip-git-repo-check", "--json"]
+        if self.approval_policy == "never" and self.sandbox_mode == "danger-full-access":
+            command.append("--dangerously-bypass-approvals-and-sandbox")
         if self.model:
             command.extend(["--model", self.model])
         command.append(prompt)
